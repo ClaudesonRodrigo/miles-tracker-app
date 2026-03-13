@@ -25,7 +25,6 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // A Query agora pede as três colunas granulares
   const { data: alerts } = await supabase
     .from('alerts')
     .select(`
@@ -53,6 +52,14 @@ export default async function DashboardPage() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
+  // Helper para mapear a sigla do banco para o nome comercial Premium (Domain Knowledge)
+  const getPremiumAirlineName = (airlineCode: string) => {
+    if (airlineCode === 'GOL') return 'GOL (Smiles)';
+    if (airlineCode === 'LATAM') return 'LATAM Pass';
+    if (airlineCode === 'AZUL') return 'Azul Fidelidade';
+    return airlineCode;
+  };
+
   return (
     <main className="min-h-screen bg-gray-900 text-white p-6 md:p-12">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -60,7 +67,7 @@ export default async function DashboardPage() {
         <header className="flex justify-between items-center border-b border-gray-800 pb-6">
           <div>
             <h1 className="text-3xl font-bold">Painel Rastreio Triplo</h1>
-            <p className="text-gray-400 mt-1">Monitore os preços simultâneos na Gol, Latam e Azul.</p>
+            <p className="text-gray-400 mt-1">Monitore os preços simultâneos na Smiles, LATAM Pass e Azul Fidelidade.</p>
           </div>
           <div className="text-sm text-gray-500">
             Logado como: <span className="text-gray-300">{user.email}</span>
@@ -94,25 +101,6 @@ export default async function DashboardPage() {
               <div>
                 <label className="block text-sm text-gray-400 mb-1">Data do Voo</label>
                 <input name="departureDate" type="date" required className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:ring-2 focus:ring-blue-500" />
-              </div>
-
-              {/* Novo Bloco: Input Granular das Companhias */}
-              <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
-                <label className="block text-sm font-semibold text-gray-300 mb-3 text-center">Base Atual de Milhas (Se aplicável)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-xs text-orange-400 mb-1 text-center">GOL</label>
-                    <input name="milesGol" type="number" placeholder="Ex: 35k" className="w-full bg-gray-800 border border-gray-700 rounded p-1 text-sm text-white text-center" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-red-500 mb-1 text-center">LATAM</label>
-                    <input name="milesLatam" type="number" placeholder="Ex: 30k" className="w-full bg-gray-800 border border-gray-700 rounded p-1 text-sm text-white text-center" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-blue-400 mb-1 text-center">AZUL</label>
-                    <input name="milesAzul" type="number" placeholder="Ex: 40k" className="w-full bg-gray-800 border border-gray-700 rounded p-1 text-sm text-white text-center" />
-                  </div>
-                </div>
               </div>
 
               <div>
@@ -183,18 +171,18 @@ export default async function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Novo Bloco: Painel Comparativo Triplo */}
+                    {/* Grid Comparativo Triplo (Com Naming Convention Premium) */}
                     <div className="grid grid-cols-3 gap-4 mt-4 bg-gray-900/40 rounded-lg p-3 border border-gray-700/50 divide-x divide-gray-700/50">
                       <div className="text-center">
-                        <span className="block text-xs font-bold text-orange-400 mb-1">GOL</span>
+                        <span className="block text-xs font-bold text-orange-400 mb-1">GOL (Smiles)</span>
                         <span className="text-gray-400 line-through text-sm">{alert.miles_gol > 0 ? alert.miles_gol.toLocaleString('pt-BR') : 'N/A'}</span>
                       </div>
                       <div className="text-center">
-                        <span className="block text-xs font-bold text-red-500 mb-1">LATAM</span>
+                        <span className="block text-xs font-bold text-red-500 mb-1">LATAM Pass</span>
                         <span className="text-gray-400 line-through text-sm">{alert.miles_latam > 0 ? alert.miles_latam.toLocaleString('pt-BR') : 'N/A'}</span>
                       </div>
                       <div className="text-center">
-                        <span className="block text-xs font-bold text-blue-400 mb-1">AZUL</span>
+                        <span className="block text-xs font-bold text-blue-400 mb-1">Azul Fidelidade</span>
                         <span className="text-gray-400 line-through text-sm">{alert.miles_azul > 0 ? alert.miles_azul.toLocaleString('pt-BR') : 'N/A'}</span>
                       </div>
                     </div>
@@ -204,7 +192,7 @@ export default async function DashboardPage() {
                         <div className="flex items-center gap-2 text-red-400 text-sm">
                           <span>🔥</span>
                           <span>
-                            A <strong>{latestNotif.airline}</strong> baixou o preço para <strong>{latestNotif.found_miles.toLocaleString('pt-BR')} milhas</strong>!
+                            A <strong>{getPremiumAirlineName(latestNotif.airline)}</strong> baixou o preço para <strong>{latestNotif.found_miles.toLocaleString('pt-BR')} milhas</strong>!
                           </span>
                         </div>
                         <button className="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors">

@@ -4,7 +4,6 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 
-// Helper interno para instanciar o Supabase (DRY)
 async function getSupabase() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -12,39 +11,28 @@ async function getSupabase() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
+        getAll() { return cookieStore.getAll(); },
         setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-          } catch (error) {
-            // Ignorado em Server Actions
-          }
+          try { cookiesToSet.forEach(({ name, value, options }) => { cookieStore.set(name, value, options); }); } catch (error) {}
         },
       },
     }
   );
 }
 
-// 1. CREATE (Criar Alerta com Granularidade Tripla)
+// 1. CREATE (Arquitetura Desacoplada: Criação Instantânea)
 export async function createMilesAlert(formData: FormData) {
+  console.log("🚀 [Server Action] Iniciando criação do Alerta Assíncrono...");
+  
   try {
     const passengerName = formData.get('passengerName') as string;
     const origin = formData.get('origin') as string;
     const destination = formData.get('destination') as string;
     const departureDate = formData.get('departureDate') as string;
     const thresholdMiles = Number(formData.get('thresholdMiles'));
-    
-    // Captura individual das companhias aéreas
-    const milesGol = Number(formData.get('milesGol')) || 0;
-    const milesLatam = Number(formData.get('milesLatam')) || 0;
-    const milesAzul = Number(formData.get('milesAzul')) || 0;
 
     if (!passengerName || !origin || !destination || !departureDate || !thresholdMiles) {
-      return { success: false, message: 'Preencha todos os campos obrigatórios principais.' };
+      return { success: false, message: 'Preencha todos os campos obrigatórios.' };
     }
 
     const supabase = await getSupabase();
@@ -55,35 +43,55 @@ export async function createMilesAlert(formData: FormData) {
     }
 
     const userId = authData.user.id;
+    let routeId;
 
-    const { data: routeData, error: routeError } = await supabase
+    // FIND OR CREATE: Garante que a rota existe sem duplicar
+    const { data: existingRoutes } = await supabase
       .from('routes')
-      .insert([{ origin: origin.toUpperCase(), destination: destination.toUpperCase(), departure_date: departureDate }])
       .select('id')
-      .single();
+      .eq('origin', origin.toUpperCase())
+      .eq('destination', destination.toUpperCase())
+      .eq('departure_date', departureDate);
 
-    if (routeError) return { success: false, message: `Erro na rota: ${routeError.message}` };
+    if (existingRoutes && existingRoutes.length > 0) {
+      routeId = existingRoutes[0].id;
+    } else {
+      const { data: newRoute, error: insertError } = await supabase
+        .from('routes')
+        .insert([{ origin: origin.toUpperCase(), destination: destination.toUpperCase(), departure_date: departureDate }])
+        .select('id')
+        .single();
 
-    // Inserção com a nova estrutura da Base de Dados
+      if (insertError) return { success: false, message: `Erro na rota: ${insertError.message}` };
+      routeId = newRoute.id;
+    }
+
+    // DECOUPLING: Gravamos o alerta na hora para libertar o ecrã do cliente
     const { error: alertError } = await supabase
       .from('alerts')
       .insert([{
         user_id: userId,
-        route_id: routeData.id,
+        route_id: routeId,
         passenger_name: passengerName,
-        miles_gol: milesGol,
-        miles_latam: milesLatam,
-        miles_azul: milesAzul,
+        miles_gol: 0,
+        miles_latam: 0,
+        miles_azul: 0,
         threshold_miles: thresholdMiles,
         is_active: true
       }]);
 
-    if (alertError) return { success: false, message: `Erro no alerta: ${alertError.message}` };
+    if (alertError) {
+      console.error("❌ [Erro no Supabase - Alerta]", alertError);
+      return { success: false, message: `Erro no alerta: ${alertError.message}` };
+    }
 
+    console.log("🎉 [Sucesso] Alerta criado com sucesso! Liberando a interface...");
     revalidatePath('/dashboard');
-    return { success: true, message: 'Rastreador Triplo ativado!' };
+
+    return { success: true, message: 'Rastreador ativado! O robô vai varrer os preços em background.' };
 
   } catch (error: any) {
+    console.error("🔥 [Erro Crítico na Ação]", error);
     return { success: false, message: error.message };
   }
 }
@@ -111,8 +119,8 @@ export async function toggleAlertStatus(formData: FormData) {
 
     revalidatePath('/dashboard');
     return { success: true, message: 'Status atualizado.' };
-  } catch (error: any) {
-    return { success: false, message: error.message };
+  } catch (error: any) { 
+    return { success: false, message: error.message }; 
   }
 }
 
@@ -141,7 +149,7 @@ export async function deleteAlert(formData: FormData) {
 
     revalidatePath('/dashboard');
     return { success: true, message: 'Alerta excluído permanentemente.' };
-  } catch (error: any) {
-    return { success: false, message: error.message };
+  } catch (error: any) { 
+    return { success: false, message: error.message }; 
   }
 }
