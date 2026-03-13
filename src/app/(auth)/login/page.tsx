@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const router = useRouter();
 
@@ -16,6 +17,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
 
     if (isSignUp) {
       // Fluxo de Cadastro de novo Lead
@@ -23,16 +25,24 @@ export default function LoginPage() {
         email,
         password,
       });
-      if (signUpError) setError(signUpError.message);
-      else alert('Conta criada com sucesso! Faça login para continuar.');
+      if (signUpError) {
+        setError(signUpError.message);
+      } else {
+        setSuccess('Conta criada com sucesso! Faça login para continuar.');
+        setIsSignUp(false); // Retorna para a visualização de login
+        setPassword(''); // Limpa a senha da memória
+      }
     } else {
       // Fluxo de Login
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (signInError) setError(signInError.message);
-      else router.push('/dashboard');
+      if (signInError) {
+        setError(signInError.message);
+      } else {
+        router.push('/dashboard');
+      }
     }
     setLoading(false);
   };
@@ -52,6 +62,12 @@ export default function LoginPage() {
         {error && (
           <div className="bg-red-500/10 border border-red-500 text-red-500 p-3 rounded-lg mb-6 text-sm text-center">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-500/10 border border-green-500 text-green-500 p-3 rounded-lg mb-6 text-sm text-center">
+            {success}
           </div>
         )}
 
@@ -95,7 +111,11 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <button
-            onClick={() => setIsSignUp(!isSignUp)}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError('');
+              setSuccess('');
+            }}
             className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
           >
             {isSignUp
