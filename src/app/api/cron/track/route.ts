@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchFlightPrices } from '../../../../core/services/flightApi'; 
+import { fetchFlightPrices } from '@/core/services/flightApi'; 
 import { revalidatePath } from 'next/cache'; // Importamos o destruidor de cache
 
 export const dynamic = 'force-dynamic';
