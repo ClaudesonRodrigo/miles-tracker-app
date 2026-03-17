@@ -124,7 +124,7 @@ export async function toggleAlertStatus(formData: FormData) {
   }
 }
 
-// 3. DELETE (Excluir Alerta e Limpar o Lixo)
+// 3. DELETE (Excluir Alerta eeee Limpar o Lixo)
 export async function deleteAlert(formData: FormData) {
   try {
     const alertId = formData.get('alertId') as string;
