@@ -3,14 +3,13 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createMilesAlert, toggleAlertStatus, deleteAlert } from '@/core/actions/alerts';
+import AlertToast from '@/components/dashboard/AlertToast';
 
-// 🛠️ HELPER: Formatação de Milhas (Estilo Profissional)
 const formatMiles = (value: number | null) => {
   if (value === null || value === undefined || value === 0) return '---';
   return new Intl.NumberFormat('pt-BR').format(value);
 };
 
-// ✈️ HELPER: Direcionamento para Home dos Programas de Fidelidade
 const getAirlineHome = (airline: string) => {
   const links: Record<string, string> = {
     'GOL': 'https://www.smiles.com.br/',
@@ -67,7 +66,6 @@ export default async function DashboardPage() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
-  // 🚪 Action de Logout (Refatorada para estabilidade)
   async function handleSignOut() {
     'use server';
     const c = await cookies();
@@ -89,6 +87,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 font-sans text-slate-900">
+      <AlertToast />
+      
       <header className="max-w-6xl mx-auto flex justify-between items-center mb-10">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight italic">Atlas<span className="text-blue-600">Develop</span></h1>
@@ -103,13 +103,12 @@ export default async function DashboardPage() {
 
       <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* COLUNA ESQUERDA: Formulário */}
         <section className="lg:col-span-4 bg-white p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-white h-fit">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
             <span className="w-2 h-6 bg-blue-600 rounded-full"></span>
             Novo Alerta
           </h2>
-          {/* @ts-expect-error */}
+          {/* @ts-ignore */}
           <form action={createMilesAlert} className="space-y-5">
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Passageiro</label>
@@ -143,7 +142,6 @@ export default async function DashboardPage() {
           </form>
         </section>
 
-        {/* COLUNA DIREITA: Cards */}
         <section className="lg:col-span-8 space-y-6">
           <h2 className="text-xl font-bold text-slate-800 px-2 tracking-tight">Rastreadores Ativos</h2>
 
@@ -169,14 +167,14 @@ export default async function DashboardPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           {/* @ts-ignore */}
-                          <span className="text-3xl font-black text-slate-900">{alert.routes.origin}</span>
+                          <span className="text-3xl font-black text-slate-900">{alert.routes?.origin}</span>
                           <span className="text-slate-300 font-light text-2xl">➔</span>
                           {/* @ts-ignore */}
-                          <span className="text-3xl font-black text-slate-900">{alert.routes.destination}</span>
+                          <span className="text-3xl font-black text-slate-900">{alert.routes?.destination}</span>
                         </div>
                         <p className="text-slate-400 text-xs mt-2 font-medium italic">
                           {/* @ts-ignore */}
-                          Voo: {new Date(alert.routes.departure_date).toLocaleDateString('pt-BR')}
+                          Voo: {alert.routes?.departure_date ? new Date(alert.routes.departure_date).toLocaleDateString('pt-BR') : '---'}
                         </p>
                       </div>
 
@@ -197,10 +195,7 @@ export default async function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Preços com Links para a Home das Companhias */}
                     <div className="grid grid-cols-3 gap-3 mb-6">
-                      
-                      {/* Card GOL */}
                       <a 
                         href={getAirlineHome('GOL')}
                         target="_blank"
@@ -212,7 +207,6 @@ export default async function DashboardPage() {
                         <span className="text-[8px] font-bold text-slate-300 group-hover:text-orange-500 transition-colors uppercase tracking-tighter italic">SMILES ➔</span>
                       </a>
 
-                      {/* Card LATAM */}
                       <a 
                         href={getAirlineHome('LATAM')}
                         target="_blank"
@@ -224,7 +218,6 @@ export default async function DashboardPage() {
                         <span className="text-[8px] font-bold text-slate-300 group-hover:text-red-500 transition-colors uppercase tracking-tighter italic">PASS ➔</span>
                       </a>
 
-                      {/* Card AZUL */}
                       <a 
                         href={getAirlineHome('AZUL')}
                         target="_blank"
@@ -237,7 +230,6 @@ export default async function DashboardPage() {
                       </a>
                     </div>
 
-                    {/* Notificação */}
                     {hasNotification && (
                        <div className="mb-6 p-4 bg-blue-600 rounded-2xl text-white flex items-center justify-between shadow-lg shadow-blue-100 animate-pulse">
                         <div className="flex items-center gap-3">
@@ -249,9 +241,8 @@ export default async function DashboardPage() {
                       </div>
                     )}
 
-                    {/* Botões de Ação */}
                     <div className="flex gap-4 pt-6 border-t border-slate-50">
-                      {/* @ts-expect-error */}
+                      {/* @ts-ignore */}
                       <form action={toggleAlertStatus} className="flex-1">
                         <input type="hidden" name="alertId" value={alert.id} />
                         <input type="hidden" name="isActive" value={String(alert.is_active)} />
@@ -259,7 +250,7 @@ export default async function DashboardPage() {
                           {alert.is_active ? 'Pausar Robô' : 'Retomar Robô'}
                         </button>
                       </form>
-                      {/* @ts-expect-error */}
+                      {/* @ts-ignore */}
                       <form action={deleteAlert}>
                         <input type="hidden" name="alertId" value={alert.id} />
                         <button className="px-6 py-3 text-[10px] font-black uppercase text-red-500 hover:bg-red-50 rounded-xl transition-all">
