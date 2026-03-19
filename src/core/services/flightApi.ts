@@ -1,12 +1,20 @@
-import { Duffel } from '@duffel/api';
+import { createClient } from '@supabase/supabase-js';
 
 export interface FlightResult {
   airline: string;
   priceMiles: number;
 }
 
-const MILES_MULTIPLIER = 100;
 const SB_API_KEY = process.env.SCRAPINGBEE_API_KEY;
+const SMILES_API_KEY = process.env.SMILES_API_KEY;
+
+// 🛠️ HELPER: Cliente Supabase para o Servidor (Service Role para bypassar RLS no Cache)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// ⏱️ FinOps: Tempo de vida do Cache em milissegundos (3 horas)
+const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
 async function getScrapingBeeUrl(targetUrl: string, renderJs: boolean = false) {
   const url = new URL('https://app.scrapingbee.com/api/v1/');
@@ -27,7 +35,7 @@ async function scrapeSmiles(origin: string, destination: string, flightDate: str
     
     const response = await fetch(sbUrl, {
       headers: {
-        'x-api-key': 'a802226a-9fdc-4148-8921-7278052136e0',
+        'x-api-key': SMILES_API_KEY || '',
         'Content-Type': 'application/json',
       },
       next: { revalidate: 0 }
@@ -86,56 +94,76 @@ async function scrapeAzul(origin: string, destination: string, flightDate: strin
 
 export async function fetchFlightPrices(origin: string, destination: string, flightDate: string): Promise<FlightResult[]> {
   const results: FlightResult[] = [];
+  const airlinesToScrape = ['GOL', 'AZUL'];
   
-  const [smilesData, azulData] = await Promise.all([
-    scrapeSmiles(origin, destination, flightDate),
-    scrapeAzul(origin, destination, flightDate)
-  ]);
+  // 1. ESTRATÉGIA DE CACHE: Tenta ler do Supabase primeiro
+  const { data: cachedData, error: cacheError } = await supabase
+    .from('flight_cache')
+    .select('*')
+    .eq('origin', origin)
+    .eq('destination', destination)
+    .eq('departure_date', flightDate);
 
-  if (smilesData) results.push(smilesData);
-  if (azulData) results.push(azulData);
+  const now = new Date().getTime();
+  const validCache: FlightResult[] = [];
 
-  if (results.length === 0) {
-    const apiKey = process.env.DUFFEL_API_KEY;
-    if (!apiKey || apiKey === 'SUA_CHAVE_AQUI') return [];
-
-    try {
-      const duffel = new Duffel({ token: apiKey });
-      const offerRequest = await duffel.offerRequests.create({
-        slices: [{ origin, destination, departure_date: flightDate } as any],
-        passengers: [{ type: 'adult' }],
-        cabin_class: 'economy',
-        return_offers: false,
-      });
-
-      const offersResponse = await duffel.offers.list({
-        offer_request_id: offerRequest.data.id,
-        limit: 50,
-      });
-
-      if (offersResponse.data && offersResponse.data.length > 0) {
-        const airlinesFound = new Set();
-        for (const offer of offersResponse.data) {
-          const airlineName = offer.owner.name.toUpperCase();
-          let mappedAirline = '';
-          if (airlineName.includes('LATAM')) mappedAirline = 'LATAM';
-          else if (airlineName.includes('GOL')) mappedAirline = 'GOL';
-          else if (airlineName.includes('AZUL')) mappedAirline = 'AZUL';
-
-          if (mappedAirline && !airlinesFound.has(mappedAirline)) {
-            airlinesFound.add(mappedAirline);
-            const rawAmount = parseFloat(offer.total_amount);
-            results.push({
-              airline: mappedAirline,
-              priceMiles: Math.floor(rawAmount * MILES_MULTIPLIER)
-            });
-          }
-          if (airlinesFound.size === 3) break;
-        }
+  if (cachedData && !cacheError) {
+    for (const cache of cachedData) {
+      const cacheAge = now - new Date(cache.created_at).getTime();
+      if (cacheAge < CACHE_TTL_MS) {
+        // Cache Válido! Adiciona aos resultados e remove da fila de scraping
+        console.log(`🟢 [CACHE HIT] ${origin} -> ${destination} | ${cache.airline} encontrada no banco local.`);
+        validCache.push({ airline: cache.airline, priceMiles: cache.price_miles });
+        const index = airlinesToScrape.indexOf(cache.airline);
+        if (index > -1) airlinesToScrape.splice(index, 1);
+      } else {
+        console.log(`🟡 [CACHE EXPIRED] ${origin} -> ${destination} | ${cache.airline} passou de 3 horas. Revalidando...`);
       }
-    } catch (error) {
-      return [];
     }
+  }
+
+  results.push(...validCache);
+
+  // Se todas as companhias estavam no cache, retornamos agora. Custo zero!
+  if (airlinesToScrape.length === 0) {
+    console.log(`⚡ [FAST RETURN] Todos os dados em cache. Nenhum crédito consumido.`);
+    return results;
+  }
+
+  // 2. SCRAPING PARALELO APENAS DAS FALTANTES
+  console.log(`🔴 [SCRAPING] Consultando API externa via ScrapingBee para: ${airlinesToScrape.join(', ')}`);
+  const scrapingPromises = [];
+  
+  if (airlinesToScrape.includes('GOL')) {
+    scrapingPromises.push(scrapeSmiles(origin, destination, flightDate));
+  }
+  if (airlinesToScrape.includes('AZUL')) {
+    scrapingPromises.push(scrapeAzul(origin, destination, flightDate));
+  }
+
+  const freshData = await Promise.all(scrapingPromises);
+  
+  // 3. PERSISTÊNCIA: Salva os dados novos no banco para as próximas buscas
+  const cacheInserts = [];
+  for (const data of freshData) {
+    if (data) {
+      results.push(data);
+      cacheInserts.push({
+        origin,
+        destination,
+        departure_date: flightDate,
+        airline: data.airline,
+        price_miles: data.priceMiles,
+        created_at: new Date().toISOString()
+      });
+    }
+  }
+
+  if (cacheInserts.length > 0) {
+    console.log(`💾 [CACHE SALVO] Inserindo ${cacheInserts.length} novos registros no Supabase para ${origin} -> ${destination}.`);
+    await supabase
+      .from('flight_cache')
+      .upsert(cacheInserts, { onConflict: 'origin,destination,departure_date,airline' });
   }
 
   return results;
