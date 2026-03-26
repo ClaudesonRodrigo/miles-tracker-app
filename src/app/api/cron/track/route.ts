@@ -1,88 +1,82 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchFlightPrices } from '@/core/services/flightApi'; 
-import { revalidatePath } from 'next/cache';
+import { fetchFlightPrices } from '@/core/services/flightApi';
 
-export const dynamic = 'force-dynamic';
+// Instância Admin para Bypass RLS (Cron não tem sessão de usuário)
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-export async function GET(request: Request) {
+// 🛠️ HELPER: Função de Sleep (Esfriamento de IP)
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export async function GET() {
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY! 
-    );
+    console.log('--------------------------------------------------');
+    console.log('🕒 [CRON JOB] Iniciando varredura de passagens...');
 
-    const { data: alerts, error: alertsError } = await supabase
+    // 1. Busca todos os alertas ativos no banco
+    const { data: alerts, error: alertsError } = await supabaseAdmin
       .from('alerts')
-      .select(`
-        id, 
-        user_id, 
-        threshold_miles,
-        miles_gol,
-        miles_latam,
-        miles_azul,
-        routes ( origin, destination, departure_date )
-      `)
+      .select('id, user_id, route_id, threshold_miles, routes(origin, destination, departure_date)')
       .eq('is_active', true);
 
-    if (alertsError) throw new Error(alertsError.message);
-    if (!alerts || alerts.length === 0) {
-      return NextResponse.json({ message: 'Nenhum alerta ativo no momento.' });
+    if (alertsError || !alerts || alerts.length === 0) {
+      console.log('✅ [CRON JOB] Nenhum alerta ativo no momento.');
+      return NextResponse.json({ success: true, message: "Nenhum alerta ativo." });
     }
 
-    let processedCount = 0;
+    console.log(`📋 [CRON JOB] Encontrados ${alerts.length} alertas para processar.`);
     let notificationsSent = 0;
 
-    for (const alert of alerts) {
-      const { origin, destination, departure_date } = alert.routes as any;
-      const flights = await fetchFlightPrices(origin, destination, departure_date);
+    // 🚀 GOLPE DE MESTRE: Serialização (For...of em vez de Promise.all)
+    // Isso impede que a máquina abra 10 Chromes de uma vez e tome ban do WAF
+    for (const [index, alert] of alerts.entries()) {
+      // @ts-ignore
+      const { origin, destination, departure_date } = alert.routes;
 
-      if (flights && flights.length > 0) {
-        let newGol = alert.miles_gol || 0;
-        let newLatam = alert.miles_latam || 0;
-        let newAzul = alert.miles_azul || 0;
+      console.log(`\n✈️ [ROTA ${index + 1}/${alerts.length}] ${origin} -> ${destination} (${departure_date})`);
 
-        for (const flight of flights) {
-          if (flight.airline === 'GOL') newGol = flight.priceMiles;
-          if (flight.airline === 'LATAM') newLatam = flight.priceMiles;
-          if (flight.airline === 'AZUL') newAzul = flight.priceMiles;
+      // Aciona o motor do Puppeteer (Um de cada vez!)
+      const results = await fetchFlightPrices(origin, destination, departure_date);
 
-          await supabase.from('price_history').insert([{
-            alert_id: alert.id,
-            airline: flight.airline,
-            miles: flight.priceMiles
-          }]);
-
-          if (flight.priceMiles < alert.threshold_miles) {
-            await supabase.from('notifications').insert([{
+      if (results && results.length > 0) {
+        for (const res of results) {
+          if (res.priceMiles <= alert.threshold_miles) {
+            console.log(`🔥 [ALERTA ATINGIDO!] ${res.airline} está por ${res.priceMiles} milhas. (Alvo: ${alert.threshold_miles})`);
+            
+            // Grava a notificação no banco de dados
+            await supabaseAdmin.from('notifications').insert([{
               user_id: alert.user_id,
               alert_id: alert.id,
-              airline: flight.airline,
-              found_miles: flight.priceMiles,
+              airline: res.airline,
+              found_miles: res.priceMiles,
               is_read: false
             }]);
+            
             notificationsSent++;
+          } else {
+             console.log(`❌ [FORA DO ALVO] ${res.airline} cobrando ${res.priceMiles} milhas (Alvo: ${alert.threshold_miles})`);
           }
         }
+      }
 
-        await supabase.from('alerts').update({
-          miles_gol: newGol,
-          miles_latam: newLatam,
-          miles_azul: newAzul
-        }).eq('id', alert.id);
-
-        processedCount++;
+      // 🧊 ESFRIAMENTO DE IP: Se não for a última rota, espera 3 segundos antes do próximo Chromium
+      if (index < alerts.length - 1) {
+        console.log(`🧊 [WAF BYPASS] Aguardando 3 segundos para não acionar bloqueio de rede...`);
+        await delay(3000);
       }
     }
 
-    revalidatePath('/dashboard');
-
+    console.log('--------------------------------------------------');
     return NextResponse.json({ 
       success: true, 
-      message: `Robô finalizou a varredura. ${processedCount} rotas processadas. ${notificationsSent} notificações geradas.` 
+      message: `Varredura finalizada. ${alerts.length} rotas processadas. ${notificationsSent} notificações geradas.` 
     });
 
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch (error) {
+    console.error('🔥 [CRON JOB ERROR]', error);
+    return NextResponse.json({ success: false, error: 'Erro interno no processamento.' }, { status: 500 });
   }
 }
