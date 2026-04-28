@@ -1,87 +1,66 @@
-import { createClient } from '@supabase/supabase-js';
-
-export interface FlightResult {
-  airline: string;
-  priceMiles: number;
+export interface FlightSearchConfig {
+  origin: string;
+  destination: string;
+  departureDate: string; // Formato esperado: YYYY-MM-DD
 }
 
-// 🛠️ HELPER: Cliente Supabase para o Servidor
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// 🛡️ Tipagem para agradar o TypeScript e o VS Code
+interface SerpApiFlight {
+  flights: Array<{ airline?: string }>;
+  price?: number;
+}
 
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000;
-
-// 🎯 MOTOR B2B: Integração Limpa via API (Atualmente com Mock para desenvolvimento UI)
-async function fetchFromB2bApi(origin: string, destination: string, flightDate: string): Promise<FlightResult | null> {
+export async function searchFlights({ origin, destination, departureDate }: FlightSearchConfig) {
   try {
-    console.log(`🔌 [API GATEWAY] Conectando ao provedor B2B para a rota ${origin} -> ${destination} em ${flightDate}...`);
+    console.log(`[SERPAPI] Buscando voos reais de ${origin} para ${destination} em ${departureDate}...`);
 
-    // Simulação de latência de rede de uma API real (ex: HubMilhas)
-    await new Promise(resolve => setTimeout(resolve, 800));
+    if (!process.env.SERPAPI_API_KEY) {
+      throw new Error('A variável de ambiente SERPAPI_API_KEY não está definida no seu .env');
+    }
 
-    // TODO: Quando assinar uma API oficial, descomente e use este bloco:
-    /*
-    const response = await fetch(`https://api.fornecedor.com/v1/flights?orig=${origin}&dest=${destination}&date=${flightDate}`, {
-      headers: { 'Authorization': `Bearer ${process.env.B2B_API_TOKEN}` }
+    // Configuração dos parâmetros exigidos pelo Google Flights
+    const params = new URLSearchParams({
+      engine: 'google_flights',
+      departure_id: origin,
+      arrival_id: destination,
+      outbound_date: departureDate,
+      currency: 'BRL',      // Forçar o preço em Reais
+      hl: 'pt',             // Idioma em português
+      type: '2',            // 2 = Voo apenas de ida
+      api_key: process.env.SERPAPI_API_KEY
     });
+
+    const response = await fetch(`https://serpapi.com/search.json?${params.toString()}`);
     const data = await response.json();
-    return { airline: 'GOL', priceMiles: data.bestPrice };
-    */
 
-    // MOCK DATA: Gerando um preço aleatório realista entre 15.000 e 45.000 milhas para renderizar o Front-end
-    const mockPrice = Math.floor(Math.random() * (45000 - 15000 + 1)) + 15000;
-
-    console.log(`✅ [B2B SUCCESS] Resposta recebida do provedor oficial: ${mockPrice} milhas!`);
-    
-    return { airline: 'GOL', priceMiles: mockPrice };
-
-  } catch (error: any) {
-    console.error(`❌ [API Gateway Error] Falha de comunicação com o provedor B2B:`, error.message);
-    return null;
-  }
-}
-
-export async function fetchFlightPrices(origin: string, destination: string, flightDate: string): Promise<FlightResult[]> {
-  const results: FlightResult[] = [];
-  const airlinesToFetch = ['GOL']; 
-  
-  const { data: cachedData, error: cacheError } = await supabase
-    .from('flight_cache')
-    .select('*')
-    .eq('origin', origin)
-    .eq('destination', destination)
-    .eq('departure_date', flightDate);
-
-  const now = new Date().getTime();
-  const validCache: FlightResult[] = [];
-
-  if (cachedData && !cacheError) {
-    for (const cache of cachedData) {
-      const cacheAge = now - new Date(cache.created_at).getTime();
-      if (cacheAge < CACHE_TTL_MS) {
-        console.log(`🟢 [CACHE HIT] Dados lidos da memória do Supabase (Zero custo).`);
-        validCache.push({ airline: cache.airline, priceMiles: cache.price_miles });
-        const index = airlinesToFetch.indexOf(cache.airline);
-        if (index > -1) airlinesToFetch.splice(index, 1);
-      }
+    if (data.error) {
+      console.error('[SERPAPI] Erro retornado pela API:', data.error);
+      return [];
     }
+
+    // O Google Flights divide os resultados e nós juntamos tudo num array tipado
+    const allFlights: SerpApiFlight[] = [
+      ...(data.best_flights || []),
+      ...(data.other_flights || [])
+    ];
+
+    console.log(`[SERPAPI] Sucesso! ${allFlights.length} ofertas encontradas no Google Flights.`);
+
+    // 🛡️ Agora o map sabe exatamente o que é "flight" sem usar "any"
+    return allFlights.map((flight) => {
+      return {
+        owner: {
+          // Extrai o nome da companhia do primeiro trajeto
+          name: flight.flights?.[0]?.airline || 'DESCONHECIDA'
+        },
+        // Converte o preço para string para manter o padrão que a rota espera
+        total_amount: flight.price?.toString() || '999999'
+      };
+    });
+
+  } catch (error) {
+    console.error('[SERPAPI] Erro crítico ao buscar passagens:', error);
+    // Retorna um array vazio para não quebrar a aplicação
+    return [];
   }
-
-  results.push(...validCache);
-
-  if (airlinesToFetch.length === 0) return results;
-
-  if (airlinesToFetch.includes('GOL')) {
-    const freshData = await fetchFromB2bApi(origin, destination, flightDate);
-    if (freshData) {
-      results.push(freshData);
-      await supabase.from('flight_cache').upsert({
-        origin, destination, departure_date: flightDate, airline: freshData.airline,
-        price_miles: freshData.priceMiles, created_at: new Date().toISOString()
-      }, { onConflict: 'origin,destination,departure_date,airline' });
-    }
-  }
-
-  return results;
 }

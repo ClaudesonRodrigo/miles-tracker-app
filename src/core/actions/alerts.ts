@@ -46,12 +46,14 @@ export async function createMilesAlert(formData: FormData) {
     return
   }
 
-  // 2. Extração e Sanitização de Dados (Evita lixo no banco)
+  // 2. Extração e Sanitização de Dados (Agora operando em BRL / Float)
   const passengerName = formData.get('passengerName') as string
   const origin = (formData.get('origin') as string).toUpperCase()
   const destination = (formData.get('destination') as string).toUpperCase()
   const departureDate = formData.get('departureDate') as string
-  const thresholdMiles = parseInt(formData.get('thresholdMiles') as string, 10)
+  
+  // ParseFloat para aceitar centavos do input de dinheiro
+  const thresholdPrice = parseFloat(formData.get('thresholdPrice') as string)
 
   let routeId: string;
 
@@ -80,14 +82,14 @@ export async function createMilesAlert(formData: FormData) {
     routeId = newRoute.id
   }
 
-  // 4. Inserção do Alerta Final usando Admin
+  // 4. Inserção do Alerta Final usando Admin (Refletindo nova coluna de preço)
   const { error: alertError } = await supabaseAdmin
     .from('alerts')
     .insert([{
       user_id: user.id,
       route_id: routeId,
       passenger_name: passengerName,
-      threshold_miles: thresholdMiles,
+      threshold_price: thresholdPrice,
       is_active: true
     }])
 

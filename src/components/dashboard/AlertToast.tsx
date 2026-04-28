@@ -4,8 +4,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { Bell, Plane, X } from 'lucide-react'
 
+// 🛠️ TIPAGEM FORTE: Eliminando o 'any' e mapeando a nova estrutura de dados
+interface NotificationPayload {
+  airline: string;
+  found_price: number;
+}
+
 export default function AlertToast() {
-  const [notification, setNotification] = useState<any>(null)
+  const [notification, setNotification] = useState<NotificationPayload | null>(null)
 
   useEffect(() => {
     const channel = supabase
@@ -14,7 +20,7 @@ export default function AlertToast() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          setNotification(payload.new)
+          setNotification(payload.new as NotificationPayload)
           // Auto-hide após 10 segundos
           setTimeout(() => setNotification(null), 10000)
         }
@@ -28,6 +34,12 @@ export default function AlertToast() {
 
   if (!notification) return null
 
+  // 🛠️ REFACTORING: Formatação para Real Brasileiro (BRL) protegida contra null
+  const formattedPrice = new Intl.NumberFormat('pt-BR', { 
+    style: 'currency', 
+    currency: 'BRL' 
+  }).format(notification.found_price || 0);
+
   return (
     <div className="fixed bottom-5 right-5 z-50 animate-bounce">
       <div className="bg-blue-600 text-white p-4 rounded-lg shadow-2xl border border-blue-400 flex items-start gap-4 max-w-sm">
@@ -39,7 +51,7 @@ export default function AlertToast() {
             <Bell className="h-4 w-4" /> OPORTUNIDADE!
           </h4>
           <p className="text-sm opacity-90">
-            Passagem encontrada na {notification.airline} por {notification.found_miles.toLocaleString()} milhas!
+            Passagem encontrada na {notification.airline} por {formattedPrice}!
           </p>
         </div>
         <button onClick={() => setNotification(null)} className="hover:bg-blue-700 p-1 rounded">
