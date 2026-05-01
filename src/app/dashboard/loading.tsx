@@ -10,7 +10,7 @@ export default function DashboardLoading() {
 
       <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Lado do Formulário (Skeleton estático) */}
-        <section className="lg:col-span-4 bg-white p-8 rounded-[2rem] shadow-xl border border-white h-fit opacity-50">
+        <section className="lg:col-span-4 bg-white p-8 rounded-4xl shadow-xl border border-white h-fit opacity-50">
           <div className="h-6 w-32 bg-slate-200 rounded mb-6"></div>
           <div className="space-y-5">
             <div className="h-12 bg-slate-50 rounded-xl"></div>

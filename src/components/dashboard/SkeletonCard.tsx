@@ -16,8 +16,8 @@ export function SkeletonCard() {
         </div>
       </div>
       
-      {/* Grid de Preços (GOL, LATAM, AZUL) */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
+      {/* Grid de Preços: 1 coluna no mobile, 3 colunas no PC */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         <div className="h-20 bg-slate-50 rounded-2xl border border-slate-100"></div>
         <div className="h-20 bg-slate-50 rounded-2xl border border-slate-100"></div>
         <div className="h-20 bg-slate-50 rounded-2xl border border-slate-100"></div>
